@@ -21,9 +21,8 @@ type Service struct {
 }
 
 type StoreInfo struct {
-	ConversationID string   `json:"conversation_id"`
-	UserInput      []string `json:"user_input"`   // Changed to string slice
-	BotResponse    []string `json:"bot_response"` // Changed to string slice
+	UserInput   []string `json:"user_input"`   // Array of user messages
+	BotResponse []string `json:"bot_response"` // Array of assistant responses
 }
 
 type LLMResponse struct {
@@ -113,6 +112,12 @@ func (s *Service) ProcessMessage(ctx context.Context, msg models.Message) (*mode
 	3. Search existing knowledge (action: "search")
 	4. Create new conversations when topics change significantly (action: "new_conversation")
 
+	When storing knowledge:
+	- Only store specific, important facts or information
+	- Extract and summarize the key information, don't store entire conversations
+	- Format the information clearly and concisely
+
+
 	When the user asks about previous information or references past conversations,
 	use the "reply" action to respond using the conversation history and knowledge provided.
 	Only use "search" when explicitly asked to search for something.
@@ -125,9 +130,8 @@ func (s *Service) ProcessMessage(ctx context.Context, msg models.Message) (*mode
 		"action": "reply|store|search|new_conversation",
 		"content": "Your natural language response here...",
 		"store_info": {
-			"conversation_id": "optional: conversation ID",
-			"user_input": ["message1", "message2"],  // Array of user messages
-			"bot_response": ["reply1", "reply2"]     // Array of assistant responses
+			"user_input": ["The key information to store"],  // Extract only the important facts
+			"bot_response": ["Confirmation or clarification of the stored info"]
 		},
 		"new_title": "optional: title for new conversation if action is new_conversation"
 	}`
@@ -200,18 +204,24 @@ func (s *Service) ProcessMessage(ctx context.Context, msg models.Message) (*mode
 		return response, nil
 
 	case "store":
-		// Convert the store info arrays to a formatted string
+		// Extract and format the key information
 		var storeContent strings.Builder
+		storeContent.WriteString("Knowledge Entry:\n")
 		for i := 0; i < len(llmResponse.StoreInfo.UserInput); i++ {
-			storeContent.WriteString(fmt.Sprintf("User: %s\n", llmResponse.StoreInfo.UserInput[i]))
+			storeContent.WriteString(fmt.Sprintf("Information: %s\n", llmResponse.StoreInfo.UserInput[i]))
 			if i < len(llmResponse.StoreInfo.BotResponse) {
-				storeContent.WriteString(fmt.Sprintf("Assistant: %s\n", llmResponse.StoreInfo.BotResponse[i]))
+				storeContent.WriteString(fmt.Sprintf("Context: %s\n", llmResponse.StoreInfo.BotResponse[i]))
 			}
 		}
 
-		if err := s.db.SaveToKnowledgeBase(storeContent.String(), msg.ConvID); err != nil {
-			// Log but continue if storing fails
+		content := storeContent.String()
+		fmt.Printf("Attempting to store knowledge: ConvID=%d, Content=%q\n", msg.ConvID, content)
+
+		// Always use the current conversation ID
+		if err := s.db.SaveToKnowledgeBase(content, msg.ConvID); err != nil {
 			fmt.Printf("Warning: failed to store knowledge: %v\n", err)
+		} else {
+			fmt.Printf("Successfully stored knowledge in conversation %d\n", msg.ConvID)
 		}
 		fallthrough // Fall through to "reply" case
 

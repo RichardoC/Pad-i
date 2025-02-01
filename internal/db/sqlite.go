@@ -38,15 +38,13 @@ DROP TABLE IF EXISTS knowledge_fts;
 
 -- Recreate FTS table with correct schema
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts4(
-    content,
-    conversation_id,
-    tokenize=porter
+    content
 );
 
 -- Trigger to keep the FTS index up to date
 CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge BEGIN
-    INSERT INTO knowledge_fts(docid, content, conversation_id) 
-    VALUES (new.id, new.content, new.conversation_id);
+    INSERT INTO knowledge_fts(docid, content) 
+    VALUES (new.id, new.content);
 END;
 
 CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge BEGIN
@@ -55,8 +53,8 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge BEGIN
     DELETE FROM knowledge_fts WHERE docid = old.id;
-    INSERT INTO knowledge_fts(docid, content, conversation_id) 
-    VALUES (new.id, new.content, new.conversation_id);
+    INSERT INTO knowledge_fts(docid, content) 
+    VALUES (new.id, new.content);
 END;`
 
 type Database struct {
@@ -97,37 +95,31 @@ func (db *Database) CreateConversation(title string) (*models.Conversation, erro
 }
 
 func (db *Database) SaveToKnowledgeBase(content string, conversationID int64) error {
+	fmt.Printf("SaveToKnowledgeBase called with content=%q, conversationID=%d\n", content, conversationID)
+
 	tx, err := db.db.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Insert into main knowledge table
+	// Insert into main knowledge table only
 	result, err := tx.Exec(`
 		INSERT INTO knowledge (content, conversation_id, created_at)
 		VALUES (?, ?, CURRENT_TIMESTAMP)
 	`, content, conversationID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to insert into knowledge table: %w", err)
 	}
 
-	// Get the ID of the inserted row
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
+	// The trigger will handle the FTS insert automatically
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Insert into FTS table
-	_, err = tx.Exec(`
-		INSERT INTO knowledge_fts(docid, content, conversation_id)
-		VALUES (?, ?, ?)
-	`, id, content, conversationID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	id, _ := result.LastInsertId()
+	fmt.Printf("Successfully saved knowledge with ID=%d\n", id)
+	return nil
 }
 
 func (db *Database) GetConversationHistory(conversationID int64, limit int) ([]models.Message, error) {
@@ -185,31 +177,7 @@ func (db *Database) SearchKnowledge(query string) ([]struct {
 	ConversationID int64     `json:"conversation_id"`
 	CreatedAt      time.Time `json:"created_at"`
 }, error) {
-	// Using SQLite FTS4 for full-text search
-	const createFTS = `
-	CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts4(
-		content,
-		conversation_id,
-		tokenize=porter
-	);`
-	if _, err := db.db.Exec(createFTS); err != nil {
-		return nil, fmt.Errorf("failed to create FTS table: %w", err)
-	}
-
-	// Ensure existing knowledge is in FTS table
-	const syncFTS = `
-	INSERT INTO knowledge_fts(docid, content, conversation_id)
-	SELECT id, content, conversation_id 
-	FROM knowledge k
-	WHERE NOT EXISTS (
-		SELECT 1 FROM knowledge_fts f
-		WHERE f.docid = k.id
-	);`
-	if _, err := db.db.Exec(syncFTS); err != nil {
-		return nil, fmt.Errorf("failed to sync FTS table: %w", err)
-	}
-
-	// Perform the search
+	// Perform the search using a JOIN
 	rows, err := db.db.Query(`
 		SELECT k.content, k.conversation_id, k.created_at
 		FROM knowledge k

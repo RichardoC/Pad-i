@@ -26,3 +26,5 @@ go.work.sum
 
 # pad-i.db
 pad-i.db
+
+.DS_Store

@@ -50,12 +50,24 @@ function createMessageElement(message) {
 async function sendMessage() {
     const input = document.getElementById('userInput');
     const content = input.value.trim();
-    if (!content || !currentConversationId) return;
+    if (!content) return;
 
     input.value = '';
     input.disabled = true;
 
     try {
+        // If no conversation is selected, create a new one
+        if (!currentConversationId) {
+            // Create a new conversation with the first few words as the title
+            const title = content.split(' ').slice(0, 4).join(' ') + '...';
+            const response = await fetchJSON('/api/conversations', {
+                method: 'POST',
+                body: JSON.stringify({ title })
+            });
+            currentConversationId = response.id;
+            await loadConversations();
+        }
+
         // Create and display user message immediately
         const userMessage = {
             role: 'user',
@@ -79,6 +91,11 @@ async function sendMessage() {
         if (response.new_conversation_id && response.new_conversation_id !== currentConversationId) {
             await loadConversations();
             switchConversation(response.new_conversation_id);
+        } else {
+            // Highlight the current conversation in the list
+            document.querySelectorAll('.conversation').forEach(el => {
+                el.classList.toggle('active', el.getAttribute('data-id') === String(currentConversationId));
+            });
         }
 
         // Scroll to bottom
@@ -163,10 +180,17 @@ async function switchConversation(conversationId) {
         el.classList.toggle('active', el.getAttribute('data-id') === String(conversationId));
     });
 
+    const messagesDiv = document.getElementById('messages');
+    
+    if (!conversationId) {
+        // Clear messages and show welcome message
+        messagesDiv.innerHTML = '<div class="message system"><div class="content">Type a message to start a new conversation!</div></div>';
+        return;
+    }
+
     // Load messages for this conversation
     try {
         const messages = await fetchJSON(`/api/messages?conversation_id=${conversationId}`);
-        const messagesDiv = document.getElementById('messages');
         messagesDiv.innerHTML = '';
         
         // Check if messages is an array
@@ -185,7 +209,7 @@ async function switchConversation(conversationId) {
         }
     } catch (error) {
         console.error('Error loading messages:', error);
-        document.getElementById('messages').innerHTML = 
+        messagesDiv.innerHTML = 
             '<div class="message system"><div class="content">Failed to load messages</div></div>';
     }
 }
@@ -197,15 +221,15 @@ function createSearchResultElement(result) {
     const div = document.createElement('div');
     div.className = 'search-result';
     div.innerHTML = `
-        <div class="content">${result.content}</div>
+        <div class="content">${result.content || 'No content available'}</div>
         <div class="metadata">
-            <span class="relevance">Relevance: ${(result.relevance * 100).toFixed(1)}%</span>
-            <span class="time">${formatDate(result.created_at)}</span>
+            <span class="relevance">Relevance: ${result.relevance ? (result.relevance * 100).toFixed(1) : 0}%</span>
+            <span class="time">${result.created_at ? formatDate(result.created_at) : 'Unknown date'}</span>
         </div>
     `;
     div.onclick = () => {
         const textarea = document.getElementById('userInput');
-        textarea.value += `\n\nReferencing: ${result.content}`;
+        textarea.value += `\n\nReferencing: ${result.content || ''}`;
         textarea.focus();
     };
     return div;
@@ -222,12 +246,15 @@ async function searchKnowledge(query) {
         const searchResultsDiv = document.getElementById('searchResults');
         searchResultsDiv.innerHTML = '';
         
-        if (results.length === 0) {
+        // Ensure results is an array
+        const searchResults = Array.isArray(results) ? results : [];
+        
+        if (searchResults.length === 0) {
             searchResultsDiv.innerHTML = '<div class="no-results">No results found</div>';
             return;
         }
 
-        results.forEach(result => {
+        searchResults.forEach(result => {
             searchResultsDiv.appendChild(createSearchResultElement(result));
         });
     } catch (error) {

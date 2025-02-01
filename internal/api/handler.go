@@ -181,19 +181,27 @@ func (h *Handler) SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 
     query := r.URL.Query().Get("q")
     if query == "" {
-        http.Error(w, "Query parameter 'q' is required", http.StatusBadRequest)
+        // Return empty array for empty query
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode([]struct{}{})
         return
     }
 
     results, err := h.llm.SearchKnowledge(r.Context(), query)
     if err != nil {
         h.logger.Error("Failed to search knowledge", zap.Error(err))
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        // Return empty array on error instead of internal server error
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode([]struct{}{})
         return
     }
 
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(results)
+    if err := json.NewEncoder(w).Encode(results); err != nil {
+        h.logger.Error("Failed to encode search results", zap.Error(err))
+        http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+        return
+    }
 }
 
 func (h *Handler) DeleteConversation(w http.ResponseWriter, r *http.Request) {
