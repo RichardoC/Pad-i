@@ -185,37 +185,37 @@ func (db *Database) SearchKnowledge(query string) ([]struct {
 	ConversationID int64     `json:"conversation_id"`
 	CreatedAt      time.Time `json:"created_at"`
 }, error) {
-	// Using SQLite FTS5 for full-text search
+	// Using SQLite FTS4 for full-text search
 	const createFTS = `
-	CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+	CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts4(
 		content,
-		conversation_id UNINDEXED,
-		created_at UNINDEXED
-	);
-	`
+		conversation_id,
+		tokenize=porter
+	);`
 	if _, err := db.db.Exec(createFTS); err != nil {
 		return nil, fmt.Errorf("failed to create FTS table: %w", err)
 	}
 
 	// Ensure existing knowledge is in FTS table
 	const syncFTS = `
-	INSERT INTO knowledge_fts(content, conversation_id, created_at)
-	SELECT content, conversation_id, created_at FROM knowledge
+	INSERT INTO knowledge_fts(docid, content, conversation_id)
+	SELECT id, content, conversation_id 
+	FROM knowledge k
 	WHERE NOT EXISTS (
-		SELECT 1 FROM knowledge_fts
-		WHERE knowledge_fts.rowid = knowledge.id
-	);
-	`
+		SELECT 1 FROM knowledge_fts f
+		WHERE f.docid = k.id
+	);`
 	if _, err := db.db.Exec(syncFTS); err != nil {
 		return nil, fmt.Errorf("failed to sync FTS table: %w", err)
 	}
 
 	// Perform the search
 	rows, err := db.db.Query(`
-		SELECT content, conversation_id, created_at
-		FROM knowledge_fts
-		WHERE knowledge_fts MATCH ?
-		ORDER BY rank;
+		SELECT k.content, k.conversation_id, k.created_at
+		FROM knowledge k
+		JOIN knowledge_fts fts ON k.id = fts.docid
+		WHERE fts.content MATCH ?
+		ORDER BY k.created_at DESC;
 	`, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search knowledge: %w", err)

@@ -21,9 +21,9 @@ type Service struct {
 }
 
 type StoreInfo struct {
-	ConversationID string `json:"conversation_id"`
-	UserInput      string `json:"user_input"`
-	BotResponse    string `json:"bot_response"`
+	ConversationID string   `json:"conversation_id"`
+	UserInput      []string `json:"user_input"`   // Changed to string slice
+	BotResponse    []string `json:"bot_response"` // Changed to string slice
 }
 
 type LLMResponse struct {
@@ -126,8 +126,8 @@ func (s *Service) ProcessMessage(ctx context.Context, msg models.Message) (*mode
 		"content": "Your natural language response here...",
 		"store_info": {
 			"conversation_id": "optional: conversation ID",
-			"user_input": "optional: user input",
-			"bot_response": "optional: bot response"
+			"user_input": ["message1", "message2"],  // Array of user messages
+			"bot_response": ["reply1", "reply2"]     // Array of assistant responses
 		},
 		"new_title": "optional: title for new conversation if action is new_conversation"
 	}`
@@ -200,12 +200,16 @@ func (s *Service) ProcessMessage(ctx context.Context, msg models.Message) (*mode
 		return response, nil
 
 	case "store":
-		// Convert the store info to a string for storage
-		storeContent := fmt.Sprintf("User: %s\nAssistant: %s",
-			llmResponse.StoreInfo.UserInput,
-			llmResponse.StoreInfo.BotResponse)
+		// Convert the store info arrays to a formatted string
+		var storeContent strings.Builder
+		for i := 0; i < len(llmResponse.StoreInfo.UserInput); i++ {
+			storeContent.WriteString(fmt.Sprintf("User: %s\n", llmResponse.StoreInfo.UserInput[i]))
+			if i < len(llmResponse.StoreInfo.BotResponse) {
+				storeContent.WriteString(fmt.Sprintf("Assistant: %s\n", llmResponse.StoreInfo.BotResponse[i]))
+			}
+		}
 
-		if err := s.db.SaveToKnowledgeBase(storeContent, msg.ConvID); err != nil {
+		if err := s.db.SaveToKnowledgeBase(storeContent.String(), msg.ConvID); err != nil {
 			// Log but continue if storing fails
 			fmt.Printf("Warning: failed to store knowledge: %v\n", err)
 		}
