@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pad-i Assistant</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="sidebar">
+            <div class="knowledge-search">
+                <input type="text" id="knowledgeSearch" placeholder="Search knowledge base...">
+                <div id="searchResults" class="search-results"></div>
+            </div>
+            <div class="conversations-list">
+                <!-- Conversations will be added here by JavaScript -->
+            </div>
+        </div>
+        <div class="chat-main">
+            <div id="messages" class="messages">
+                <!-- Messages will be added here by JavaScript -->
+            </div>
+            <div class="input-area">
+                <textarea id="userInput" placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)" rows="3"></textarea>
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/main.js"></script>
+</body>
+</html> 
